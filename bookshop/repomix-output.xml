@@ -1,0 +1,313 @@
+
+<repomix>
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+db/
+  data/
+    sap.capire.bookshop-Authors.csv
+    sap.capire.bookshop-Books.csv
+  schema.cds
+srv/
+  src/
+    main/
+      java/
+        bookShop/
+          handlers/
+            CatalogServiceHandler.java
+  admin-service.cds
+  cat-service.cds
+.gitignore
+eslint.config.mjs
+package.json
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="db/data/sap.capire.bookshop-Authors.csv">
+ID,name
+101,Emily Brontë
+107,Charlotte Brontë
+150,Edgar Allen Poe
+170,Richard Carpenter
+</file>
+
+<file path="db/data/sap.capire.bookshop-Books.csv">
+ID,title,author_ID,stock
+201,Wuthering Heights,101,12
+207,Jane Eyre,107,11
+251,The Raven,150,333
+252,Eleonora,150,555
+271,Catweazle,170,22
+</file>
+
+<file path="db/schema.cds">
+using { Currency, managed, sap } from '@sap/cds/common';
+namespace sap.capire.bookshop; 
+
+entity Books : managed { 
+  key ID : Integer;
+  title  : localized String(111);
+  descr  : localized String(1111);
+  author : Association to Authors;
+  genre  : Association to Genres;
+  stock  : Integer;
+  price  : Decimal(9,2);
+  currency : Currency;
+}
+
+entity Authors : managed { 
+  key ID : Integer;
+  name   : String(111);
+  books  : Association to many Books on books.author = $self;
+}
+
+/** Hierarchically organized Code List for Genres */
+entity Genres : sap.common.CodeList { 
+  key ID   : Integer;
+  parent   : Association to Genres;
+  children : Composition of many Genres on children.parent = $self;
+}
+
+entity BorrowedBooks : managed {
+  key ID     : UUID;
+  userId     : String;
+  book       : Association to Books;
+  borrowDate : DateTime;
+}
+</file>
+
+<file path="srv/src/main/java/bookShop/handlers/CatalogServiceHandler.java">
+package com.example.bookshop.handlers;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Component;
+using { sap.capire.bookshop as my } from '../db/schema';
+import com.sap.cds.services.cds.CdsReadEventContext;
+import com.sap.cds.services.handler.EventHandler;
+import com.sap.cds.services.handler.annotations.ServiceName;
+import com.sap.cds.services.handler.annotations.On;
+import com.sap.cds.services.ErrorStatuses;
+import com.sap.cds.services.ServiceException;
+import cds.gen.catalogservice.CatalogService;
+import org.springframework.stereotype.Component;
+import com.sap.cds.services.handler.EventHandler;
+import com.sap.cds.services.handler.annotations.ServiceName;
+
+@Component
+@ServiceName("CatalogService")
+public class CatalogServiceHandler implements EventHandler {
+
+    @On(event = "borrowBook")
+    public void onBorrowBook(BorrowBookContext context) {
+        Integer bookID = context.getBookID();
+        String userId = context.getUserInfo().getId();
+
+        // Fetch the book
+        Optional<Books> bookOptional = context.run(
+            Select.from(Books_.class).byId(bookID)
+        ).first(Books.class);
+
+        if (!bookOptional.isPresent()) {
+            throw new ServiceException(ErrorStatuses.NOT_FOUND, "Book not found");
+        }
+
+        Books book = bookOptional.get();
+
+        // Check if the book is in stock
+        if (book.getStock() <= 0) {
+            throw new ServiceException(ErrorStatuses.BAD_REQUEST, "Book is out of stock");
+        }
+
+        // Check the user's current borrowed books
+        List<BorrowedBooks> borrowedBooks = context.run(
+            Select.from(BorrowedBooks_.class)
+                  .where(b -> b.userId().eq(userId))
+        ).listOf(BorrowedBooks.class);
+
+        if (borrowedBooks.size() >= 5) {
+            throw new ServiceException(ErrorStatuses.BAD_REQUEST, "Borrowing limit reached");
+        }
+
+        // Update the book stock
+        book.setStock(book.getStock() - 1);
+        context.run(Update.entity(Books_.class).data(book));
+
+        // Record the borrowed book
+        BorrowedBooks newBorrow = BorrowedBooks.create();
+        newBorrow.setBookId(bookID);
+        newBorrow.setUserId(userId);
+        context.run(Insert.into(BorrowedBooks_.class).entry(newBorrow));
+    }
+}
+</file>
+
+<file path="srv/admin-service.cds">
+using { sap.capire.bookshop as my } from '../db/schema';
+service AdminService @(requires:'authenticated-user') { 
+  entity Books as projection on my.Books;
+  entity Authors as projection on my.Authors;
+}
+</file>
+
+<file path="srv/cat-service.cds">
+using { sap.capire.bookshop as my } from '../db/schema';
+service CatalogService @(path:'/browse') { 
+
+  @readonly entity Books as select from my.Books {*,
+    author.name as author
+  } excluding { createdBy, modifiedBy };
+
+  @requires: 'authenticated-user'
+  action submitOrder (book: Books:ID, quantity: Integer);
+  @requires: 'authenticated-user'
+  action borrowBook(bookID: Integer);
+}
+</file>
+
+<file path=".gitignore">
+# CAP bookshop
+_out
+*.db
+*.sqlite
+connection.properties
+default-*.json
+.cdsrc-private.json
+gen/
+node_modules/
+target/
+
+# Web IDE, App Studio
+.che/
+.gen/
+
+# MTA
+*_mta_build_tmp
+*.mtar
+mta_archives/
+
+# Other
+.DS_Store
+*.orig
+*.log
+
+*.iml
+*.flattened-pom.xml
+
+# IDEs
+# .vscode
+# .idea
+
+# @cap-js/cds-typer
+@cds-models
+</file>
+
+<file path="eslint.config.mjs">
+import cds from '@sap/cds/eslint.config.mjs'
+export default [ ...cds.recommended ]
+</file>
+
+<file path="package.json">
+{
+  "name": "bookshop",
+  "version": "1.0.0",
+  "description": "A simple CAP project.",
+  "repository": "<Add your repository here>",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@sap/cds": "^8",
+    "express": "^4"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^1",
+    "@cap-js/cds-types": "^0.9.0"
+  },
+  "scripts": {
+    "start": "cds-serve"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+          "kind": "sqlite",
+          "credentials": { "url": "db.sqlite" } 
+      }
+    }
+  }
+}
+</file>
+
+<file path="README.md">
+# Getting Started
+
+Welcome to your new project.
+
+It contains these folders and files, following our recommended project layout:
+
+File or Folder | Purpose
+---------|----------
+`app/` | content for UI frontends goes here
+`db/` | your domain models and data go here
+`srv/` | your service models and code go here
+`package.json` | project metadata and configuration
+`readme.md` | this getting started guide
+
+
+## Next Steps
+
+- Open a new terminal and run `cds watch`
+- (in VS Code simply choose _**Terminal** > Run Task > cds watch_)
+- Start adding content, for example, a [db/schema.cds](db/schema.cds).
+
+
+## Learn More
+
+Learn more at https://cap.cloud.sap/docs/get-started/.
+</file>
+
+</files>
+</repomix>
