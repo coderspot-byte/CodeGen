@@ -1,0 +1,2 @@
+The Order class includes fields like price and taxRate.
+We want to keep the design clean and object-oriented.

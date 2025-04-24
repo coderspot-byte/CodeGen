@@ -1,0 +1,11 @@
+Business Logic: Automatic Stock Replenishment Alert
+Scenario:
+The bookshop wants to avoid running out of stock for popular books. An automated alert should notify the inventory manager when a book’s stock falls below a threshold.
+
+Business Rules:
+
+If a book’s available stock drops below 5 copies, trigger a "Low Stock Alert" for the inventory team.
+
+Include the book’s title, current stock level, and supplier details in the alert.
+
+For books marked as "Bestsellers", set a higher threshold (e.g., alert if stock < 10 copies).

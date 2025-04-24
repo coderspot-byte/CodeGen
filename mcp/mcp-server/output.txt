@@ -1,0 +1,75 @@
+### CAP Java Code for Automatic Stock Replenishment Alert
+
+#### **Models (CDS)**
+
+Add to `src/main/cds/models/Book.cds` (create if doesn't exist):
+
+```cds
+entity Book {
+  key id: Integer;
+  title: String;
+  stock: Integer;
+  supplier: association to Supplier;
+  isBestseller: Boolean default false;
+}
+
+entity Supplier {
+  key id: Integer;
+  name: String;
+  contact: String;
+}
+```
+
+#### **Service Implementation**
+
+Create `src/main/java/com/example/BookService.java`:
+
+```java
+package com.example;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.sap.cloud.sdk.sdp.cds.CdsService;
+import com.sap.cloud.sdk.sdp.cds.CdsServiceException;
+import com.sap.cloud.sdk.sdp.cds.annotations.CdsServiceAnnotation;
+import com.sap.cloud.sdk.sdp.cds.annotations.EventHandler;
+import com.sap.cloud.sdk.sdp.cds.annotations.EventHandler.EventHandlerType;
+import com.sap.cloud.sdk.sdp.cds.annotations.EventHandler.EventHandlerPhase;
+
+import javax.annotation.PostConstruct;
+
+@CdsServiceAnnotation(name = "BookService", entities = {"Book", "Supplier"})
+public class BookService extends CdsService {
+
+    private static final Logger logger = LoggerFactory.getLogger(BookService.class);
+
+    @PostConstruct
+    public void init() {
+        // Initialize service if needed
+    }
+
+    @EventHandler(event = EventHandlerType.AFTER_UPDATE, entity = "Book", phase = EventHandlerPhase.AFTER_COMMIT)
+    public void checkStockLevel(Book book) {
+        if (book != null) {
+            triggerAlertIfLowStock(book);
+        }
+    }
+
+    private void triggerAlertIfLowStock(Book book) {
+        int threshold = book.isBestseller() ? 10 : 5;
+        if (book.stock < threshold) {
+            // Example: Logging the alert. In a real scenario, use an alerting service or notification mechanism.
+            logger.warn("Low Stock Alert: Book '{}' has {} copies left. Supplier: {}",
+                    book.title, book.stock, getSupplierDetails(book.supplier));
+            // TODO: Implement actual alert notification (e.g., email, messaging service)
+        }
+    }
+
+    private String getSupplierDetails(Supplier supplier) {
+        return supplier != null ? supplier.name + " - " + supplier.contact : "Supplier Not Assigned";
+    }
+}
+```
+
+#### **Notes for Completion**
+
